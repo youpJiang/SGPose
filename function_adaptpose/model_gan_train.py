@@ -267,7 +267,9 @@ def train_gan(args, poseaug_dict, data_dict, model_pos, criterion, fake_3d_sampl
     for i, ((inputs_3d, _, _, cam_param), target_d2d, target_d3d,target_d3d2) in enumerate(
             zip(data_dict['train_gt2d3d_loader'], data_dict['target_2d_loader'], data_dict['target_3d_loader'],data_dict['target_3d_loader2'])):
 
-        if i>(section+1)*300 or i<section*300:
+        if args.batch_size==1024 and (i>(section+1)*300 or i<section*300):
+            continue
+        if args.batch_size==4096 and (i>(section+1)*75 or i<section*75):
             continue
 
         pad=(inputs_3d.shape[2]-1)//2
