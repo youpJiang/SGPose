@@ -432,16 +432,16 @@ class LayerNorm(nn.Module):
 
     
 class BAGenerator_attention(nn.Module):
-    def __init__(self, input_size, noise_channle=45, linear_size=256, num_stage=2, p_dropout=0.5, num_heads=3):
+    def __init__(self, input_size, noise_channle=45, linear_size=256, num_stage=2, p_dropout=0.5, num_heads=4):
         super(BAGenerator_attention, self).__init__()
 
         # about attention        
         self.num_heads = num_heads
-        self.layer_norm = LayerNorm(input_size + noise_channle)
+        self.layer_norm = LayerNorm(linear_size)
         self.dropout = nn.Dropout(p_dropout)
         # Define multi-head attention layers
         # self.attention_layers = nn.ModuleList([MultiHeadSelfAttention(linear_size, num_heads) for _ in range(num_stage)])
-        self.attention_layers =  MultiHeadSelfAttention(input_size + noise_channle, num_heads)
+        self.attention_layers =  MultiHeadSelfAttention(linear_size, num_heads)
         
         self.linear_size = linear_size
         self.p_dropout = p_dropout
