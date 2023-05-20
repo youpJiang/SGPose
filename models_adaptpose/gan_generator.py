@@ -499,6 +499,7 @@ class BAGenerator_attention(nn.Module):
         # for i in range(self.num_stage+1):
         #     y = y + self.dropout(self.attention_layers[i](self.layer_norm(y)))
         
+        # one layer attention
         y = y + self.dropout(self.attention_layers(self.layer_norm(y)))
         # linear layers
         for i in range(self.num_stage):
