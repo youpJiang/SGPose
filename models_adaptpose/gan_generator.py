@@ -463,7 +463,7 @@ class BAGenerator_attention(nn.Module):
         # post processing
         self.w2 = nn.Linear(self.linear_size, self.input_size-3+15) #*2+(self.input_size-3)//3
 
-        self.relu = nn.LeakyReLU(inplace=True)
+        self.relu = nn.LeakyReLU(inplace=False)
 
     def forward(self, inputs_3d):
         '''
@@ -504,8 +504,10 @@ class BAGenerator_attention(nn.Module):
         # linear layers
         for i in range(self.num_stage):
             y = self.linear_stages[i](y)
+            y = self.relu(y)
 
         y = self.w2(y)
+        y = self.relu(y)
         y = y.view(x.size(0), -1, 4)
 
         y_axis=y[:,:,:3]
