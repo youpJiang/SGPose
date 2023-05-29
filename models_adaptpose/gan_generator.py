@@ -402,7 +402,7 @@ class MultiHeadSelfAttention(nn.Module):
         self.output_linear = nn.Linear(hidden_size, hidden_size)
 
     def forward(self, inputs):
-        batch_size, seq_length = inputs.size()
+        batch_size, seq_length,_ = inputs.size()
 
         # Linear projections
         queries = self.query_linear(inputs).view(batch_size, -1, self.num_heads, self.head_size).transpose(1, 2)
@@ -435,13 +435,20 @@ class BAGenerator_attention(nn.Module):
     def __init__(self, input_size, noise_channle=45, linear_size=256, num_stage=2, p_dropout=0.5, num_heads=4):
         super(BAGenerator_attention, self).__init__()
 
-        # about attention        
+        # about attention 
+        self.encoder = nn.Sequential(
+            nn.Conv1d(3, 24, kernel_size=1),
+            nn.BatchNorm1d(24, momentum=0.1),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.25)
+        )      
+        self.pos_embedding = nn.Parameter(torch.randn(1, 31, 24)) 
         self.num_heads = num_heads
-        self.layer_norm = LayerNorm(linear_size)
+        self.layer_norm = LayerNorm(24)
         self.dropout = nn.Dropout(p_dropout)
         # Define multi-head attention layers
         # self.attention_layers = nn.ModuleList([MultiHeadSelfAttention(linear_size, num_heads) for _ in range(num_stage)])
-        self.attention_layers =  MultiHeadSelfAttention(linear_size, num_heads)
+        self.attention_layers =  MultiHeadSelfAttention(24, num_heads)
         
         self.linear_size = linear_size
         self.p_dropout = p_dropout
@@ -452,7 +459,7 @@ class BAGenerator_attention(nn.Module):
         self.input_size = input_size  # 16 * 3
 
         # process input to linear size
-        self.w1 = nn.Linear(self.input_size + self.noise_channle, self.linear_size)
+        self.w1 = nn.Linear(31*24, self.linear_size)
         self.batch_norm1 = nn.BatchNorm1d(self.linear_size)
 
         self.linear_stages = []
@@ -484,12 +491,22 @@ class BAGenerator_attention(nn.Module):
             
         # pre-processing
         bones_vec = bones_vec.view(bones_vec.size(0), -1)
-        x_=x[:,middle_frame].contiguous()
+        x_=x[:,middle_frame].contiguous() # -> torch.Size([1024, 16, 3])
+        
         x_ = x_.view(x_.size(0), -1)
         noise = torch.randn(x_.shape[0], self.noise_channle, device=x.device)
         # print(torch.cat((x_, noise).shape))
         # 16*3+45
-        y = self.w1(torch.cat((x_, noise), dim=-1)) #torch.cat((bones_vec, noise), dim=-1)
+        y=torch.cat((x_, noise), dim=-1)
+        y=y.reshape(x_.shape[0],31,-1)
+        y = y.permute(0, 2, 1).contiguous()# (b,31,3)->(b,3,31)
+        y=self.encoder(y)
+        y = y.permute(0, 2, 1).contiguous()# (b,24,31)->(b,31,24)
+        y=y+self.pos_embedding # (b,31,24)
+        # one layer attention
+        y = y + self.dropout(self.attention_layers(self.layer_norm(y)))
+        y=y.reshape(y.shape[0],-1)
+        y = self.w1(y) #torch.cat((bones_vec, noise), dim=-1)
   
         y = self.batch_norm1(y)
 
@@ -499,8 +516,7 @@ class BAGenerator_attention(nn.Module):
         # for i in range(self.num_stage+1):
         #     y = y + self.dropout(self.attention_layers[i](self.layer_norm(y)))
         
-        # one layer attention
-        y = y + self.dropout(self.attention_layers(self.layer_norm(y)))
+        
         # linear layers
         for i in range(self.num_stage):
             y = self.linear_stages[i](y)
