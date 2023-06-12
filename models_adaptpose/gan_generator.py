@@ -348,6 +348,7 @@ class BLGenerator(nn.Module):
         blr = self.relu(blr)
         for i in range(self.num_stage):
             blr = self.linear_stages_BL[i](blr)
+                        
 
         blr = self.w2_BL(blr)
        
@@ -429,26 +430,35 @@ class LayerNorm(nn.Module):
         std = x.std(-1, keepdim=True)
         return self.a_2 * (x - mean) / (std + self.eps) + self.b_2
     
+class PositionwiseFeedForward(nn.Module):
+    def __init__(self, d_model, d_ff, dropout=0.1):
+        super(PositionwiseFeedForward, self).__init__()
+        self.w_1 = nn.Linear(d_model, d_ff)
+        self.w_2 = nn.Linear(d_ff, d_model)
+        self.gelu = nn.ReLU()
+        self.dropout = nn.Dropout(dropout)
 
+    def forward(self, x):
+        return self.w_2(self.dropout(self.gelu(self.w_1(x))))
     
 class BAGenerator_attention(nn.Module):
-    def __init__(self, input_size, noise_channle=45, linear_size=256, num_stage=2, p_dropout=0.5, num_heads=4):
+    def __init__(self, input_size, noise_channle=45, linear_size=256, num_stage=2, p_dropout=0.5, num_heads=4,attention_size=48):
         super(BAGenerator_attention, self).__init__()
 
         # about attention 
         self.encoder = nn.Sequential(
-            nn.Conv1d(3, 24, kernel_size=1),
-            nn.BatchNorm1d(24, momentum=0.1),
+            nn.Conv1d(3, attention_size, kernel_size=1),
+            nn.BatchNorm1d(attention_size, momentum=0.1),
             nn.ReLU(inplace=True),
             nn.Dropout(0.25)
         )      
-        self.pos_embedding = nn.Parameter(torch.randn(1, 31, 24)) 
+        self.pos_embedding = nn.Parameter(torch.randn(1, 31, attention_size)) 
         self.num_heads = num_heads
-        self.layer_norm = LayerNorm(24)
+        self.layer_norm = LayerNorm(attention_size)
         self.dropout = nn.Dropout(p_dropout)
         # Define multi-head attention layers
         # self.attention_layers = nn.ModuleList([MultiHeadSelfAttention(linear_size, num_heads) for _ in range(num_stage)])
-        self.attention_layers =  MultiHeadSelfAttention(24, num_heads)
+        self.attention_layers =  MultiHeadSelfAttention(attention_size, num_heads)
         
         self.linear_size = linear_size
         self.p_dropout = p_dropout
@@ -459,7 +469,7 @@ class BAGenerator_attention(nn.Module):
         self.input_size = input_size  # 16 * 3
 
         # process input to linear size
-        self.w1 = nn.Linear(31*24, self.linear_size)
+        self.w1 = nn.Linear(31*attention_size, self.linear_size)
         self.batch_norm1 = nn.BatchNorm1d(self.linear_size)
 
         self.linear_stages = []
