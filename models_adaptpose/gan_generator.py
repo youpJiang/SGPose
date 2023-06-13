@@ -528,9 +528,9 @@ class BAGenerator_attention(nn.Module):
         
         
         # linear layers
-        for i in range(self.num_stage):
-            y = self.linear_stages[i](y)
-            y = self.relu(y)
+        # for i in range(self.num_stage-1):
+        #     y = self.linear_stages[i](y)
+        #     y = self.relu(y)
 
         y = self.w2(y)
         y = self.relu(y)
