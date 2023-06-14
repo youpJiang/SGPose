@@ -290,6 +290,102 @@ class RTGenerator(nn.Module):
         return augx_rt, (r, t)  # return r t for debug
 
 
+class BLGenerator_attention(nn.Module):
+    def __init__(self, input_size, noise_channle=48, linear_size=256, num_stage=2, p_dropout=0.5, blr_tanhlimit=0.2,num_heads=4,attention_size=48):
+        super(BLGenerator_attention, self).__init__()
+        '''
+        :param input_size: n x 16 x 3
+        :param output_size: R T 3 3 -> get new pose for pose 3d projection.
+        '''
+        # about attention 
+        self.encoder = nn.Sequential(
+            nn.Conv1d(3, attention_size, kernel_size=1),
+            nn.BatchNorm1d(attention_size, momentum=0.1),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.25)
+        )  
+        self.pos_embedding = nn.Parameter(torch.randn(1, 37, attention_size)) 
+        self.num_heads = num_heads
+        self.layer_norm = LayerNorm(attention_size)
+        self.dropout = nn.Dropout(p_dropout)
+        # Define multi-head attention layers
+        # self.attention_layers = nn.ModuleList([MultiHeadSelfAttention(linear_size, num_heads) for _ in range(num_stage)])
+        self.attention_layers =  MultiHeadSelfAttention(attention_size, num_heads)
+        
+        self.linear_size = linear_size
+        self.p_dropout = p_dropout
+        self.num_stage = num_stage
+        self.noise_channle = noise_channle
+        self.blr_tanhlimit = blr_tanhlimit
+
+        # 3d joints
+        self.input_size = input_size + 15  # 16 * 3 + bl
+
+        # process input to linear size -> for R
+        self.w1_BL = nn.Linear( attention_size*37, self.linear_size) 
+        self.batch_norm_BL = nn.BatchNorm1d(self.linear_size)
+
+        self.linear_stages_BL = []
+        for l in range(num_stage):
+            self.linear_stages_BL.append(Linear(self.linear_size))
+        self.linear_stages_BL = nn.ModuleList(self.linear_stages_BL)
+
+        # post processing
+        self.w2_BL = nn.Linear(self.linear_size, 9)
+
+        self.relu = nn.LeakyReLU(inplace=True)
+
+    def forward(self, inputs_3d, augx):
+        '''
+        :param inputs_3d: nx16x3
+        :return: nx16x3
+        '''
+        # convert 3d pose to root relative
+        inputs_3d=inputs_3d[:,0]
+
+        root_origin = inputs_3d[:, :, :1, :] * 1.0
+        x = inputs_3d - inputs_3d[:, :, :1, :]  # x: root relative
+        # pre-processing
+        x = x.view(x.size(0),x.size(1),  -1)
+
+        # caculate blr
+        bones_length_x = get_bone_lengthbypose3d(x.view(x.size(0),x.size(1),-1, 3)).squeeze(-1) 
+
+        middle_frame=int((x.shape[1]-1)/2)
+        pad=x.shape[1]
+        x=x[:,middle_frame]
+        bones_length_x=bones_length_x[:,middle_frame]
+       
+        
+        noise = torch.randn(x.shape[0], self.noise_channle, device=x.device)
+        blr = torch.cat((x, bones_length_x, noise), dim=-1)
+        blr = blr.reshape(x.shape[0],37,-1)
+        blr = blr.permute(0, 2, 1).contiguous()# (b,37,3)->(b,3,37)
+        blr = self.encoder(blr)
+        blr = blr.permute(0, 2, 1).contiguous()# (b,48,37)->(b,37,48)
+        blr=blr+self.pos_embedding # (b,31,48)
+        # one layer attention
+        # blr = blr + self.dropout(self.attention_layers(self.layer_norm(blr)))
+        blr=blr.reshape(blr.shape[0],-1)
+        
+        blr = self.w1_BL(blr) 
+        blr = self.batch_norm_BL(blr)
+        blr = self.relu(blr)
+        for i in range(self.num_stage):
+            blr = self.linear_stages_BL[i](blr)
+                        
+
+        blr = self.w2_BL(blr)
+       
+        # create a mask to filter out 8th blr to avoid ambiguity (tall person at far may have same 2D with short person at close point).
+        tmp_mask = torch.from_numpy(np.array([[1, 1, 1, 1, 0, 1, 1, 1, 1]]).astype('float32')).to(blr.device)
+        blr = blr * tmp_mask
+        # operate BL modification on original data
+        blr = nn.Tanh()(blr) * self.blr_tanhlimit  # allow +-20% length change.
+        blr=blr.unsqueeze(1).repeat(1,pad,1)
+        bones_length = get_bone_lengthbypose3d(augx)
+        augx_bl = blaugment9to15(augx, bones_length, blr.unsqueeze(3))
+        return augx_bl, blr  # return blr for debug
 class BLGenerator(nn.Module):
     def __init__(self, input_size, noise_channle=48, linear_size=256, num_stage=2, p_dropout=0.5, blr_tanhlimit=0.2):
         super(BLGenerator, self).__init__()
@@ -442,7 +538,7 @@ class PositionwiseFeedForward(nn.Module):
         return self.w_2(self.dropout(self.gelu(self.w_1(x))))
     
 class BAGenerator_attention(nn.Module):
-    def __init__(self, input_size, noise_channle=45, linear_size=256, num_stage=2, p_dropout=0.5, num_heads=4,attention_size=48):
+    def __init__(self, input_size, noise_channle=45, linear_size=256, num_stage=2, p_dropout=0.5, num_heads=6,attention_size=48):
         super(BAGenerator_attention, self).__init__()
 
         # about attention 
@@ -510,7 +606,7 @@ class BAGenerator_attention(nn.Module):
         y=torch.cat((x_, noise), dim=-1)
         y=y.reshape(x_.shape[0],31,-1)
         y = y.permute(0, 2, 1).contiguous()# (b,31,3)->(b,3,31)
-        y=self.encoder(y)
+        y=self.encoder(y) # (b,3,31)->(b,24,31)
         y = y.permute(0, 2, 1).contiguous()# (b,24,31)->(b,31,24)
         y=y+self.pos_embedding # (b,31,24)
         # one layer attention

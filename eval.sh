@@ -1,0 +1,2 @@
+CUDA_VISIBLE_DEVICES=3 python3  run_evaluate.py --posenet_name 'videopose' --keypoints gt --evaluate  "/data2021/jyp/adaptpose/checkpoint/adaptpose/videopose/gt/2023-06-13T22:20:17.662740_poseaug/ckpt_best_dhp_p1.pth.tar" \
+--dataset_target 3dhp --keypoints_target 'gt' --pad 13  --pretrain_path  '/home/jyp/projects/AdaptPose_mine/checkpoint/pretrain_baseline/videopose/gt/3dhp/ckpt_best.pth.tar'
