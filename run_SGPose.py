@@ -29,7 +29,6 @@ def main(args):
 
     print('==> Loading dataset...')
     data_dict = data_preparation(args)
-
     print("==> Creating PoseNet model...")
     model_pos = model_pos_preparation(args, data_dict['dataset'], device)
     model_pos_eval = model_pos_preparation(args, data_dict['dataset'], device)  # used for evaluation only
@@ -93,8 +92,8 @@ def main(args):
         # We split an epoch to five sections inorder not to face memrory problem while generating new data
         for kk in range(5):
             train_gan(args, poseaug_dict, data_dict, model_pos, criterion, fake_3d_sample, fake_2d_sample, summary, writer, section=kk)
-
-            if summary.epoch > args.warmup:
+            # print("fake data:", )
+            if summary.epoch >= args.warmup:
                 train_posenet(args.batch_size,model_pos,data_dict['train_gt2d3d_loader'], data_dict['train_fake2d3d_loader'], posenet_optimizer, criterion, device,args.mixtrain)
                 h36m_p1, h36m_p2, dhp_p1, dhp_p2 = evaluate_posenet(args, data_dict, model_pos, model_pos_eval, device,
                                                                     summary, writer, tag='_fake')
